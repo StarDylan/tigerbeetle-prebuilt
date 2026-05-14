@@ -920,5 +920,62 @@ export enum Operation {
   query_transfers = 145,
   create_accounts = 146,
   create_transfers = 147,
+  query_two_phase_transfers = 148,
+}
+
+export enum TransferPendingStatus {
+  none = 0,
+  pending = 1,
+  posted = 2,
+  voided = 3,
+  expired = 4,
+}
+
+export type TwoPhaseFilter = {
+  user_data_128: bigint
+  user_data_64: bigint
+  user_data_32: number
+  ledger: number
+  code: number
+  pending_status: TransferPendingStatus
+  target: TwoPhaseTarget
+  timestamp_min: bigint
+  timestamp_max: bigint
+  limit: number
+  flags: number
+}
+
+export type TwoPhaseResult = {
+  debit_account_id: bigint
+  credit_account_id: bigint
+  pending_id: bigint
+  pending_amount: bigint
+  pending_user_data_128: bigint
+  pending_user_data_64: bigint
+  pending_user_data_32: number
+  pending_timeout: number
+  ledger: number
+  pending_code: number
+  pending_flags: number
+  pending_timestamp: bigint
+  outcome_id: bigint
+  outcome_amount: bigint
+  outcome_user_data_128: bigint
+  outcome_user_data_64: bigint
+  outcome_user_data_32: number
+  outcome_code: number
+  outcome_flags: number
+  outcome_timestamp: bigint
+  pending_status: TransferPendingStatus
+}
+
+export enum TwoPhaseFilterFlags {
+  none = 0,
+  reversed = (1 << 0),
+}
+
+export enum TwoPhaseTarget {
+  pending = 0,
+  outcome = 1,
 }
 

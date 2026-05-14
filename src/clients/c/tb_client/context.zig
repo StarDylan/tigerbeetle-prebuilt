@@ -175,6 +175,7 @@ pub fn ContextType(
             .query_accounts,
             .query_transfers,
             .get_change_events,
+            .query_two_phase_transfers,
         };
 
         const UserData = extern struct {

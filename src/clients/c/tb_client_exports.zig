@@ -76,6 +76,13 @@ pub const tb_account_balance_t = vsr.tigerbeetle.AccountBalance;
 pub const tb_query_filter_t = vsr.tigerbeetle.QueryFilter;
 pub const tb_query_filter_flags = vsr.tigerbeetle.QueryFilterFlags;
 
+pub const tb_transfer_pending_status = vsr.tigerbeetle.TransferPendingStatus;
+
+pub const tb_two_phase_filter_t = vsr.tigerbeetle.TwoPhaseFilter;
+pub const tb_two_phase_filter_flags = vsr.tigerbeetle.TwoPhaseFilterFlags;
+pub const tb_two_phase_target = vsr.tigerbeetle.TwoPhaseTarget;
+pub const tb_two_phase_result_t = vsr.tigerbeetle.TwoPhaseResult;
+
 pub fn init_error_to_status(err: tb.InitError) tb_init_status {
     return switch (err) {
         error.Unexpected => .unexpected,

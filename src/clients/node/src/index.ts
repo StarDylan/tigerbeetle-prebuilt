@@ -8,6 +8,8 @@ import {
   AccountFilter,
   AccountBalance,
   QueryFilter,
+  TwoPhaseFilter,
+  TwoPhaseResult,
 } from './bindings'
 import { randomFillSync } from 'node:crypto'
 
@@ -56,8 +58,8 @@ const binding: Binding = (() => {
 export type Context = object // tb_client
 export type AccountID = bigint // u128
 export type TransferID = bigint // u128
-export type Event = Account | Transfer | AccountID | TransferID | AccountFilter | QueryFilter
-export type Result = CreateAccountResult | CreateTransferResult | Account | Transfer | AccountBalance
+export type Event = Account | Transfer | AccountID | TransferID | AccountFilter | QueryFilter | TwoPhaseFilter
+export type Result = CreateAccountResult | CreateTransferResult | Account | Transfer | AccountBalance | TwoPhaseResult
 export type ResultCallback = (error: Error | null, results: Result[] | null) => void
 
 export const amount_max: bigint = (2n ** 128n) - 1n
@@ -127,6 +129,7 @@ export interface Client {
   getAccountBalances: (filter: AccountFilter) => Promise<AccountBalance[]>
   queryAccounts: (filter: QueryFilter) => Promise<Account[]>
   queryTransfers: (filter: QueryFilter) => Promise<Transfer[]>
+  queryTwoPhaseTransfers: (filter: TwoPhaseFilter) => Promise<TwoPhaseResult[]>
   destroy: () => void
 }
 
@@ -173,6 +176,7 @@ export function createClient (args: ClientInitArgs): Client {
     getAccountBalances(filter) { return request(Operation.get_account_balances, [filter]) },
     queryAccounts(filter) { return request(Operation.query_accounts, [filter]) },
     queryTransfers(filter) { return request(Operation.query_transfers, [filter]) },
+    queryTwoPhaseTransfers(filter) { return request(Operation.query_two_phase_transfers, [filter]) },
     destroy,
   }
 }

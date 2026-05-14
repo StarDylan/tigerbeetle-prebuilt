@@ -83,6 +83,31 @@ const type_mappings = .{
         .name = "Operation",
         .hidden_fields = &.{ "reserved", "root", "register" },
     } },
+    .{ tb.TransferPendingStatus, TypeMapping{
+        .name = "TransferPendingStatus",
+        .hidden_fields = &.{},
+        .docs_link = null,
+    } },
+    .{ tb.TwoPhaseFilter, TypeMapping{
+        .name = "TwoPhaseFilter",
+        .hidden_fields = &.{"reserved"},
+        .docs_link = null,
+    } },
+    .{ tb.TwoPhaseResult, TypeMapping{
+        .name = "TwoPhaseResult",
+        .hidden_fields = &.{"reserved"},
+        .docs_link = null,
+    } },
+    .{ tb.TwoPhaseFilterFlags, TypeMapping{
+        .name = "TwoPhaseFilterFlags",
+        .hidden_fields = &.{"padding"},
+        .docs_link = null,
+    } },
+    .{ tb.TwoPhaseTarget, TypeMapping{
+        .name = "TwoPhaseTarget",
+        .hidden_fields = &.{},
+        .docs_link = null,
+    } },
 };
 
 fn typescript_type(comptime Type: type) []const u8 {

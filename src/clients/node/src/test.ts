@@ -15,6 +15,10 @@ import {
   QueryFilterFlags,
   ErrorCodes,
   RequestError,
+  TwoPhaseFilter,
+  TwoPhaseTarget,
+  TransferPendingStatus,
+  TwoPhaseFilterFlags,
 } from '.'
 
 const client = createClient({
@@ -485,6 +489,55 @@ test('cannot void an expired transfer', async (): Promise<void> => {
   assert.ok(transfers_results[0].timestamp > 0)
   assert.deepStrictEqual(transfers_results[0].status, CreateTransferStatus.pending_transfer_expired)
 })
+
+
+test('can query two-phase transfers', async (): Promise<void> => {
+  let filter: TwoPhaseFilter = {
+    limit: 10,
+
+    // Target: Changes the sorting and filtering behavior.
+    // Fields are filtered by the pending or posting/voiding transfer.
+    target: TwoPhaseTarget.pending,
+
+    // Filter by the pending status.
+    // Use "none" for all two-phase transfers.
+    pending_status: TransferPendingStatus.pending,
+
+    flags: TwoPhaseFilterFlags.none,
+
+    // Same query filters as `query_transfers`:
+    code: 0,
+    ledger: 0,
+    user_data_32: 0,
+    user_data_64: 0n,
+    user_data_128: 0n,
+
+    // Timestamp range depends on `target`.
+    // It can filter by the pending transfer or by
+    // the outcome event (posting/voiding/expiry)
+    timestamp_min: 0n,
+    timestamp_max: 0n,
+  }
+
+  // TODO: improve the test!
+  let transfers_results = await client.queryTwoPhaseTransfers(filter);
+  assert.deepStrictEqual(transfers_results.length, 0);
+
+  filter.pending_status = TransferPendingStatus.posted;
+  transfers_results = await client.queryTwoPhaseTransfers(filter);
+  assert.deepStrictEqual(transfers_results.length, 1);
+
+  filter.pending_status = TransferPendingStatus.voided;
+  transfers_results = await client.queryTwoPhaseTransfers(filter);
+  assert.deepStrictEqual(transfers_results.length, 1);
+})
+
+
+
+
+
+
+
 
 test('can close accounts', async (): Promise<void> => {
   const closing_transfer: Transfer = {

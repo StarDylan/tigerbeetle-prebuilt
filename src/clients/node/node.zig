@@ -7,11 +7,6 @@ const tb = vsr.tigerbeetle;
 const tb_client = vsr.tb_client;
 
 const Operation = tb.Operation;
-const Account = tb.Account;
-const Transfer = tb.Transfer;
-const AccountFilter = tb.AccountFilter;
-const AccountBalance = tb.AccountBalance;
-const QueryFilter = tb.QueryFilter;
 
 const vsr = @import("vsr");
 const constants = vsr.constants;
@@ -488,17 +483,27 @@ fn decode_array(comptime Event: type, env: c.napi_env, array: c.napi_value, even
     for (events, 0..) |*event, i| {
         const object = try translate.array_element(env, array, @intCast(i));
         switch (Event) {
-            Account,
-            Transfer,
-            AccountFilter,
-            AccountBalance,
-            QueryFilter,
+            tb.Account,
+            tb.Transfer,
+            tb.AccountFilter,
+            tb.AccountBalance,
+            tb.QueryFilter,
+            tb.TwoPhaseFilter,
+            tb.TwoPhaseResult,
             => {
                 inline for (std.meta.fields(Event)) |field| {
                     const value: field.type = switch (@typeInfo(field.type)) {
                         .@"struct" => |info| @bitCast(try @field(
                             translate,
                             @typeName(info.backing_integer.?) ++ "_from_object",
+                        )(
+                            env,
+                            object,
+                            add_trailing_null(field.name),
+                        )),
+                        .@"enum" => @enumFromInt(try @field(
+                            translate,
+                            @typeName(std.meta.Tag(field.type)) ++ "_from_object",
                         )(
                             env,
                             object,
@@ -516,7 +521,7 @@ fn decode_array(comptime Event: type, env: c.napi_env, array: c.napi_value, even
                             *const field.type,
                             @ptrCast(@alignCast(field.default_value_ptr.?)),
                         ).*,
-                        else => unreachable,
+                        else => comptime unreachable,
                     };
 
                     @field(event, field.name) = value;
@@ -556,7 +561,13 @@ fn encode_array(comptime Result: type, env: c.napi_env, results: []const Result)
                 else => @field(result, field.name),
             };
 
-            try @field(translate, @typeName(FieldInt) ++ "_into_object")(
+            const fn_name = @typeName(FieldInt) ++ "_into_object";
+            if (!@hasDecl(translate, fn_name)) {
+                @compileError("Not supported " ++
+                    @typeName(Result) ++ "." ++
+                    field.name ++ " : " ++ @typeName(FieldInt));
+            }
+            try @field(translate, fn_name)(
                 env,
                 object,
                 add_trailing_null(field.name),

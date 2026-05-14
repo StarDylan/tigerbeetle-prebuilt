@@ -701,7 +701,11 @@ pub const TwoPhaseFilter = extern struct {
     /// Use `.none` for no filter.
     pending_status: TransferPendingStatus,
 
-    reserved: [69]u8 = @splat(0),
+    /// Whether filtering by the pending transfer or the outcome transfer.
+    /// Also afects the timestamp ordering.
+    target: TwoPhaseTarget,
+
+    reserved: [68]u8 = @splat(0),
     /// The initial timestamp (inclusive).
     /// Use zero for no filter.
     timestamp_min: u64,
@@ -720,19 +724,15 @@ pub const TwoPhaseFilter = extern struct {
     }
 };
 
-pub const TwoPhaseTarget = enum(u1) {
+pub const TwoPhaseTarget = enum(u8) {
     pending = 0,
     outcome = 1,
 };
 
 pub const TwoPhaseFilterFlags = packed struct(u32) {
-    /// Whether filtering by the pending transfer or the outcome transfer.
-    /// Also afects the timestamp ordering.
-    target: TwoPhaseTarget,
-
     /// Whether the results are sorted by timestamp in chronological or reverse-chronological order.
     reversed: bool,
-    padding: u30 = 0,
+    padding: u31 = 0,
 
     comptime {
         assert(@sizeOf(TwoPhaseFilterFlags) == @sizeOf(u32));

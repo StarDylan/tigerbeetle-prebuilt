@@ -254,6 +254,17 @@ pub fn u16_from_object(env: c.napi_env, object: c.napi_value, comptime key: [:0]
     return @as(u16, @intCast(result));
 }
 
+pub fn u8_from_object(env: c.napi_env, object: c.napi_value, comptime key: [:0]const u8) !u8 {
+    const result = try u32_from_object(env, object, key);
+    if (result > std.math.maxInt(u8)) {
+        return throw(env, .{
+            .message = key ++ " must be a u8.",
+        });
+    }
+
+    return @as(u8, @intCast(result));
+}
+
 pub fn u128_from_value(env: c.napi_env, value: c.napi_value, comptime name: [:0]const u8) !u128 {
     // A BigInt's value (using ^ to mean exponent) is
     // (words[0] * (2^64)^0 + words[1] * (2^64)^1 + ...).
@@ -390,6 +401,16 @@ pub fn u16_into_object(
     object: c.napi_value,
     comptime key: [:0]const u8,
     value: u16,
+    comptime error_message: [:0]const u8,
+) !void {
+    try u32_into_object(env, object, key, value, error_message);
+}
+
+pub fn u8_into_object(
+    env: c.napi_env,
+    object: c.napi_value,
+    comptime key: [:0]const u8,
+    value: u8,
     comptime error_message: [:0]const u8,
 ) !void {
     try u32_into_object(env, object, key, value, error_message);

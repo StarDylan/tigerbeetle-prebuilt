@@ -212,6 +212,7 @@ pub const EchoOperation = enum(u8) {
     get_account_balances = @intFromEnum(Operation.get_account_balances),
     query_accounts = @intFromEnum(Operation.query_accounts),
     query_transfers = @intFromEnum(Operation.query_transfers),
+    query_two_phase_transfers = @intFromEnum(Operation.query_two_phase_transfers),
 
     comptime {
         const operation_type_info = @typeInfo(Operation).@"enum";

@@ -2302,7 +2302,7 @@ pub fn StateMachineType(comptime Storage: type) type {
                 filter,
             });
 
-            switch (filter.flags.target) {
+            switch (filter.target) {
                 .pending => self.prefetch_query_two_phase_transfers_pending_scan(filter),
                 .outcome => self.prefetch_query_two_phase_transfers_outcome_scan(filter),
             }
@@ -2317,7 +2317,7 @@ pub fn StateMachineType(comptime Storage: type) type {
             assert(self.scan_lookup_buffer_index < self.scan_lookup_buffer.len);
             maybe(self.scan_lookup_results.items.len > 0);
 
-            assert(filter.flags.target == .pending);
+            assert(filter.target == .pending);
             assert(self.forest.scan_buffer_pool.scan_buffer_used == 0);
 
             if (self.get_scan_from_two_phase_filter(.pending, filter)) |scan| {
@@ -2477,7 +2477,7 @@ pub fn StateMachineType(comptime Storage: type) type {
             assert(self.scan_lookup_buffer_index < self.scan_lookup_buffer.len);
             maybe(self.scan_lookup_results.items.len > 0);
 
-            assert(filter.flags.target == .outcome);
+            assert(filter.target == .outcome);
             assert(self.forest.scan_buffer_pool.scan_buffer_used == 0);
 
             if (self.get_scan_from_two_phase_filter(.outcome, filter)) |scan| {
@@ -2583,7 +2583,7 @@ pub fn StateMachineType(comptime Storage: type) type {
             .outcome => ?*QueryBuilder.TransfersTwoPhaseOutcomeScanBuilder.Scan,
         } {
             assert(self.forest.scan_buffer_pool.scan_buffer_used == 0);
-            assert(filter.flags.target == target);
+            assert(filter.target == target);
 
             const filter_valid =
                 (filter.timestamp_min == 0 or TimestampRange.valid(filter.timestamp_min)) and
@@ -2611,7 +2611,7 @@ pub fn StateMachineType(comptime Storage: type) type {
             assert(timestamp_range.min <= timestamp_range.max);
 
             // The field `TwoPhaseFilter.pending_status` filters by the pending status,
-            // while the field `TwoPhaseFilter.flags.target` changes the behavior for
+            // while the enum `TwoPhaseTarget` changes the behavior for
             // filtering/sorting either by the pending transfer or by the outcome
             // (posted/voided/expired) event.
             //
@@ -2623,38 +2623,38 @@ pub fn StateMachineType(comptime Storage: type) type {
             // are always the same.
             //
             // # When `filter.pending_status == .none`:
-            // - If `filter.flags.target == .pending`, returns both pending and fulfilled
+            // - If `target == .pending`, returns both pending and fulfilled
             //   transfers by the pending transfer.
             //
-            // - If `filter.flags.target == .outcome`, returns fulfilled transfers by
+            // - If `target == .outcome`, returns fulfilled transfers by
             //   the outcome (transfer or expiry).
             //
             // # When `filter.pending_status == .pending`:
-            // - If `filter.flags.target == .pending`, returns still-pending transfers by
+            // - If `target == .pending`, returns still-pending transfers by
             //   the pending transfer.
             //
-            // - If `filter.flags.target == .outcome`, returns empty, as pending transfers
+            // - If `target == .outcome`, returns empty, as pending transfers
             //   have no outcome yet.
             //
             // # When `filter.pending_status == .posted`:
-            // - If `filter.flags.target == .pending`, returns posted transfers by the
+            // - If `target == .pending`, returns posted transfers by the
             //   pending transfer.
             //
-            // - If `filter.flags.target == .outcome`, returns posted transfers by
+            // - If `target == .outcome`, returns posted transfers by
             //   the outcome transfer.
             //
             // # When `filter.pending_status == .voided`:
-            // - If `filter.flags.target == .pending`, returns voided transfers
+            // - If `target == .pending`, returns voided transfers
             //   by the pending transfer.
             //
-            // - If `filter.flags.target == .outcome`, returns voided transfers
+            // - If `target == .outcome`, returns voided transfers
             //   by the outcome transfer.p
             //
             // # When `filter.pending_status == .expired`:
-            // - If `filter.flags.target == .pending`, returns expired transfers
+            // - If `target == .pending`, returns expired transfers
             //   by the pending transfer.
             //
-            // - If `filter.flags.target == .outcome`, returns expired transfers
+            // - If `target == .outcome`, returns expired transfers
             //   by the outcome expiry timestamp.
             //   In this case, `code`/`user_data` filtering will be done using the original
             //   pending transfer.
@@ -3559,7 +3559,7 @@ pub fn StateMachineType(comptime Storage: type) type {
                             std.mem.bytesAsValue(tb.TwoPhaseFilter, batch),
                         );
 
-                        switch (filter.flags.target) {
+                        switch (filter.target) {
                             .pending => {
                                 const scan_size: u32 = result_count * @sizeOf(TransferPending);
                                 assert(self.scan_lookup_buffer_index <=

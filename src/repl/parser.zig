@@ -344,13 +344,13 @@ pub const Parser = struct {
                 .ledger = 0,
                 .code = 0,
                 .pending_status = .none,
+                .target = .pending,
                 .timestamp_min = 0,
                 .timestamp_max = 0,
                 .limit = StateMachine.Operation.query_two_phase_transfers.result_max(
                     constants.message_body_size_max,
                 ),
                 .flags = .{
-                    .target = .pending,
                     .reversed = false,
                 },
             } },
