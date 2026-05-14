@@ -60,6 +60,8 @@ jobs:
 
       - name: Build Rust client assets
         shell: pwsh
+        env:
+          CI: "false"
         run: |
           .\zig\zig.exe build clients:rust -Drelease
 
