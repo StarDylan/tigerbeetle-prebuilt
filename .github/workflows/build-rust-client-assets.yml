@@ -43,7 +43,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add \
+          git add -f \
             src/clients/rust/assets/lib/x86_64-windows/tb_client.lib \
             src/clients/rust/assets/lib/x86_64-linux-gnu.2.27/libtb_client.a \
             src/clients/rust/assets/lib/aarch64-linux-gnu.2.27/libtb_client.a \
