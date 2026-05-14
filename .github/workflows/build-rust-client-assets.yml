@@ -2,13 +2,48 @@ name: Build Rust client assets
 
 on:
   workflow_dispatch:
-  
+
 permissions:
   contents: write
 
 jobs:
+  build-linux-assets:
+    name: Build Linux Rust client assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout TigerBeetle
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Download pinned Zig
+        shell: bash
+        run: |
+          ./zig/download.sh
+
+      - name: Build Rust client assets
+        shell: bash
+        run: |
+          ./zig/zig build clients:rust -Drelease
+
+      - name: Verify Linux assets
+        shell: bash
+        run: |
+          test -f src/clients/rust/assets/lib/x86_64-linux-gnu.2.27/libtb_client.a
+          test -f src/clients/rust/assets/lib/aarch64-linux-gnu.2.27/libtb_client.a
+
+      - name: Upload Linux assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-client-linux-assets
+          path: |
+            src/clients/rust/assets/lib/x86_64-linux-gnu.2.27/libtb_client.a
+            src/clients/rust/assets/lib/aarch64-linux-gnu.2.27/libtb_client.a
+
   build-windows-assets:
-    name: Build Windows x86_64 MSVC asset
+    name: Build Windows Rust client asset
     runs-on: windows-latest
 
     steps:
@@ -40,60 +75,15 @@ jobs:
       - name: Upload Windows asset
         uses: actions/upload-artifact@v4
         with:
-          name: rust-client-windows-x86_64
+          name: rust-client-windows-assets
           path: src/clients/rust/assets/lib/x86_64-windows/tb_client.lib
-
-  build-linux-assets:
-    name: Build Linux GNU assets
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch_name: x86_64-linux-gnu.2.27
-            zig_target: x86_64-linux-gnu.2.27
-          - arch_name: aarch64-linux-gnu.2.27
-            zig_target: aarch64-linux-gnu.2.27
-
-    steps:
-      - name: Checkout TigerBeetle
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Download pinned Zig
-        shell: bash
-        run: |
-          ./zig/download.sh
-
-      - name: Build Rust client asset
-        shell: bash
-        run: |
-          ./zig/zig build clients:rust -Drelease -Dtarget=${{ matrix.zig_target }}
-
-      - name: Verify Linux asset
-        shell: bash
-        run: |
-          lib="src/clients/rust/assets/lib/${{ matrix.arch_name }}/libtb_client.a"
-          if [ ! -f "$lib" ]; then
-            echo "Missing expected file: $lib"
-            exit 1
-          fi
-
-      - name: Upload Linux asset
-        uses: actions/upload-artifact@v4
-        with:
-          name: rust-client-${{ matrix.arch_name }}
-          path: src/clients/rust/assets/lib/${{ matrix.arch_name }}/libtb_client.a
 
   commit-assets:
     name: Commit generated assets
     runs-on: ubuntu-latest
     needs:
-      - build-windows-assets
       - build-linux-assets
+      - build-windows-assets
 
     steps:
       - name: Checkout TigerBeetle
@@ -114,16 +104,16 @@ jobs:
           mkdir -p src/clients/rust/assets/lib/x86_64-linux-gnu.2.27
           mkdir -p src/clients/rust/assets/lib/aarch64-linux-gnu.2.27
 
-          cp downloaded-assets/rust-client-windows-x86_64/tb_client.lib \
+          cp downloaded-assets/rust-client-windows-assets/tb_client.lib \
             src/clients/rust/assets/lib/x86_64-windows/tb_client.lib
 
-          cp downloaded-assets/rust-client-x86_64-linux-gnu.2.27/libtb_client.a \
+          cp downloaded-assets/rust-client-linux-assets/x86_64-linux-gnu.2.27/libtb_client.a \
             src/clients/rust/assets/lib/x86_64-linux-gnu.2.27/libtb_client.a
 
-          cp downloaded-assets/rust-client-aarch64-linux-gnu.2.27/libtb_client.a \
+          cp downloaded-assets/rust-client-linux-assets/aarch64-linux-gnu.2.27/libtb_client.a \
             src/clients/rust/assets/lib/aarch64-linux-gnu.2.27/libtb_client.a
 
-      - name: Verify all assets
+      - name: Verify all committed assets
         shell: bash
         run: |
           test -f src/clients/rust/assets/lib/x86_64-windows/tb_client.lib
