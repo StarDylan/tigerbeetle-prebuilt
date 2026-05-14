@@ -390,7 +390,6 @@ pub fn ScanType(
         } = .{};
 
         pub const Indexes = std.meta.FieldEnum(@TypeOf(index_map));
-        const has_id = @hasField(Indexes, "id");
 
         fn GrooveType(comptime index: Indexes) type {
             const groove_from_index: std.meta.FieldEnum(Forest.Grooves) = @field(

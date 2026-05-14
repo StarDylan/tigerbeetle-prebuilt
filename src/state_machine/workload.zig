@@ -715,7 +715,9 @@ pub fn WorkloadType(comptime AccountingStateMachine: type) type {
                     stdx.bytes_as_slice(.exact, tb.ChangeEvent, reply_body),
                 ),
                 //Not handled by the client.
-                .pulse => unreachable,
+                .query_two_phase_transfers,
+                .pulse,
+                => unreachable,
             }
         }
 
@@ -953,7 +955,6 @@ pub fn WorkloadType(comptime AccountingStateMachine: type) type {
                 .user_data_32 = 0,
                 .code = 0,
                 .limit = 0,
-                .pending_status = .none,
                 .flags = .{
                     .credits = false,
                     .debits = false,
@@ -1063,7 +1064,6 @@ pub fn WorkloadType(comptime AccountingStateMachine: type) type {
                     .user_data_32 = 0,
                     .code = 0,
                     .ledger = 999, // Non-existent ledger
-                    .pending_status = .none,
                     .limit = limit,
                     .flags = .{
                         .reversed = false,
@@ -1082,7 +1082,6 @@ pub fn WorkloadType(comptime AccountingStateMachine: type) type {
                     .user_data_32 = query_intersection.user_data_32,
                     .code = query_intersection.code,
                     .ledger = 0,
-                    .pending_status = .none,
                     .limit = limit,
                     .flags = .{
                         .reversed = self.prng.boolean(),

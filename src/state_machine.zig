@@ -513,7 +513,7 @@ pub fn StateMachineType(comptime Storage: type) type {
                 .batch_value_count_max = tree_values_count_max.account_events,
                 .primary_key = "timestamp",
                 .primary_key_orphaned = false,
-                .unique_keys = &[_][:0]const u8{},
+                .unique_keys = &[_][:0]const u8{"expired_transfer_id"},
                 .ignored = &[_][:0]const u8{
                     "dr_account_id",
                     "dr_debits_pending",
@@ -664,7 +664,7 @@ pub fn StateMachineType(comptime Storage: type) type {
                         }
                     }.prunable,
                 },
-                .objects_cache = false,
+                .objects_cache = true,
             },
         );
 
@@ -708,6 +708,7 @@ pub fn StateMachineType(comptime Storage: type) type {
             accounts: AccountsGroove.PrefetchContext,
             transfers: TransfersGroove.PrefetchContext,
             transfers_pending: TransfersPendingGroove.PrefetchContext,
+            account_events: AccountEventsGroove.PrefetchContext,
 
             pub const Field = std.meta.FieldEnum(PrefetchContext);
             pub fn FieldType(comptime field: Field) type {
@@ -1271,6 +1272,7 @@ pub fn StateMachineType(comptime Storage: type) type {
             self.forest.grooves.accounts.prefetch_setup(snapshot);
             self.forest.grooves.transfers.prefetch_setup(snapshot);
             self.forest.grooves.transfers_pending.prefetch_setup(snapshot);
+            self.forest.grooves.account_events.prefetch_setup(snapshot);
 
             // Prefetch starts timing for an operation.
             self.metrics.timer.reset();
@@ -2358,7 +2360,10 @@ pub fn StateMachineType(comptime Storage: type) type {
             scan_lookup: *TransfersTwoPhasePendingScanLookup,
             results: []const TransferPending,
         ) void {
-            const self: *StateMachine = ScanLookup.parent(.transfers_two_phase_pending, scan_lookup);
+            const self: *StateMachine = ScanLookup.parent(
+                .transfers_two_phase_pending,
+                scan_lookup,
+            );
             assert(self.prefetch_input != null);
             assert(self.prefetch_operation.? == .query_two_phase_transfers);
             assert(self.scan_lookup_buffer_index < self.scan_lookup_buffer.len);
@@ -2402,25 +2407,32 @@ pub fn StateMachineType(comptime Storage: type) type {
             const results_len: u32 = @intCast(results_count * @sizeOf(TransferPending));
             assert(results_len <= self.scan_lookup_buffer_index);
             const offset = self.scan_lookup_buffer_index - results_len;
-            const results = stdx.bytes_as_slice(
+            const results: []const TransferPending = stdx.bytes_as_slice(
                 .exact,
                 TransferPending,
                 self.scan_lookup_buffer[offset..][0..results_len],
             );
 
             const transfers: *TransfersGroove = &self.forest.grooves.transfers;
+            const account_events: *AccountEventsGroove = &self.forest.grooves.account_events;
             for (results) |result| {
-                const transfer: Transfer = transfers.indirect_lookup(.{
+                const pending: Transfer = transfers.indirect_lookup(.{
                     .timestamp = result.timestamp,
                 }).?;
 
-                assert(transfer.timestamp == result.timestamp);
-                assert(transfer.flags.pending);
+                assert(pending.timestamp == result.timestamp);
+                assert(pending.flags.pending);
 
-                // TODO: prefetching the outcome transfer.
-                transfers.prefetch_enqueue(.{
-                    .pending_id = transfer.id,
-                });
+                switch (result.pending_status) {
+                    .none => unreachable,
+                    .pending => {},
+                    .posted, .voided => transfers.prefetch_enqueue(.{
+                        .pending_id = pending.id,
+                    }),
+                    .expired => account_events.prefetch_enqueue(.{
+                        .expired_transfer_id = pending.id,
+                    }),
+                }
             }
 
             transfers.prefetch(
@@ -2437,6 +2449,21 @@ pub fn StateMachineType(comptime Storage: type) type {
             assert(self.prefetch_operation.? == .query_two_phase_transfers);
 
             assert(self.prefetch_context == .transfers);
+            self.prefetch_context = .null;
+            self.forest.grooves.account_events.prefetch(
+                prefetch_query_two_phase_transfers_pending_event_outcome_callback,
+                self.prefetch_context.get(.account_events),
+            );
+        }
+
+        fn prefetch_query_two_phase_transfers_pending_event_outcome_callback(
+            completion: *AccountEventsGroove.PrefetchContext,
+        ) void {
+            const self: *StateMachine = PrefetchContext.parent(.account_events, completion);
+            assert(self.prefetch_input != null);
+            assert(self.prefetch_operation.? == .query_two_phase_transfers);
+
+            assert(self.prefetch_context == .account_events);
             self.prefetch_context = .null;
             self.prefetch_finish();
         }
@@ -2494,7 +2521,10 @@ pub fn StateMachineType(comptime Storage: type) type {
             scan_lookup: *TransfersTwoPhaseOutcomeScanLookup,
             results: []const AccountEvent,
         ) void {
-            const self: *StateMachine = ScanLookup.parent(.transfers_two_phase_outcome, scan_lookup);
+            const self: *StateMachine = ScanLookup.parent(
+                .transfers_two_phase_outcome,
+                scan_lookup,
+            );
             assert(self.prefetch_input != null);
             assert(self.prefetch_operation.? == .query_two_phase_transfers);
             assert(self.scan_lookup_buffer_index < self.scan_lookup_buffer.len);
@@ -3532,9 +3562,11 @@ pub fn StateMachineType(comptime Storage: type) type {
                         switch (filter.flags.target) {
                             .pending => {
                                 const scan_size: u32 = result_count * @sizeOf(TransferPending);
-                                assert(self.scan_lookup_buffer_index <= self.scan_lookup_buffer.len);
+                                assert(self.scan_lookup_buffer_index <=
+                                    self.scan_lookup_buffer.len);
                                 assert(self.scan_lookup_buffer_index >= scan_size + offset);
                                 defer offset += scan_size;
+
                                 break :size self.execute_query_two_phase_transfers_pending(
                                     filter,
                                     self.scan_lookup_buffer[offset..][0..scan_size],
@@ -3543,9 +3575,11 @@ pub fn StateMachineType(comptime Storage: type) type {
                             },
                             .outcome => {
                                 const scan_size: u32 = result_count * @sizeOf(AccountEvent);
-                                assert(self.scan_lookup_buffer_index <= self.scan_lookup_buffer.len);
+                                assert(self.scan_lookup_buffer_index <=
+                                    self.scan_lookup_buffer.len);
                                 assert(self.scan_lookup_buffer_index >= scan_size + offset);
                                 defer offset += scan_size;
+
                                 break :size self.execute_query_two_phase_transfers_outcome(
                                     filter,
                                     self.scan_lookup_buffer[offset..][0..scan_size],
@@ -4069,19 +4103,26 @@ pub fn StateMachineType(comptime Storage: type) type {
             var output_count: u32 = 0;
 
             const transfers: *TransfersGroove = &self.forest.grooves.transfers;
+            const account_events: *AccountEventsGroove = &self.forest.grooves.account_events;
             for (results) |*result| {
                 assert(TimestampRange.valid(result.timestamp));
 
                 const pending: Transfer = transfers.indirect_lookup(.{
                     .timestamp = result.timestamp,
                 }).?;
-
-                const outcome: ?Transfer = switch (result.pending_status) {
+                const outcome: union(enum) {
+                    none,
+                    transfer: Transfer,
+                    account_event: AccountEvent,
+                } = switch (result.pending_status) {
                     .none => unreachable,
-                    .pending, .expired => null,
-                    .posted, .voided => transfers.indirect_lookup(.{
+                    .pending => .none,
+                    .posted, .voided => .{ .transfer = transfers.indirect_lookup(.{
                         .pending_id = pending.id,
-                    }).?,
+                    }).? },
+                    .expired => .{ .account_event = account_events.indirect_lookup(.{
+                        .expired_transfer_id = pending.id,
+                    }).? },
                 };
 
                 output_slice[output_count] = .{
@@ -4101,20 +4142,22 @@ pub fn StateMachineType(comptime Storage: type) type {
                     .pending_flags = pending.flags,
                     .pending_timestamp = pending.timestamp,
 
-                    .outcome_id = if (outcome) |t| t.id else 0,
-                    .outcome_amount = if (outcome) |t| t.amount else 0,
-                    .outcome_user_data_128 = if (outcome) |t| t.user_data_128 else 0,
-                    .outcome_user_data_64 = if (outcome) |t| t.user_data_64 else 0,
-                    .outcome_user_data_32 = if (outcome) |t| t.user_data_32 else 0,
-                    .outcome_code = if (outcome) |t| t.code else 0,
-                    .outcome_flags = if (outcome) |t| t.flags else .{},
+                    .outcome_id = if (outcome == .transfer) outcome.transfer.id else 0,
+                    .outcome_amount = if (outcome == .transfer) outcome.transfer.amount else 0,
+                    .outcome_user_data_128 = if (outcome == .transfer) outcome
+                        .transfer.user_data_128 else 0,
+                    .outcome_user_data_64 = if (outcome == .transfer) outcome
+                        .transfer.user_data_64 else 0,
+                    .outcome_user_data_32 = if (outcome == .transfer) outcome
+                        .transfer.user_data_32 else 0,
+                    .outcome_code = if (outcome == .transfer) outcome.transfer.code else 0,
+                    .outcome_flags = if (outcome == .transfer) outcome.transfer.flags else .{},
                     .outcome_timestamp = switch (result.pending_status) {
                         .none => unreachable,
                         .pending => 0,
-                        .expired => 0, //outcome: get the expired event!
-                        .posted, .voided => outcome.?.timestamp,
+                        .expired => outcome.account_event.timestamp,
+                        .posted, .voided => outcome.transfer.timestamp,
                     },
-
                     .pending_status = result.pending_status,
                 };
                 output_count += 1;
@@ -5250,6 +5293,15 @@ pub fn StateMachineType(comptime Storage: type) type {
                 // the expiry timestamp.
                 // For posted/voided transfers the existing indexes on the `Transfers`
                 // groove can be used.
+
+                self.forest.grooves.account_events.indexes.expired_transfer_id.put(&.{
+                    .timestamp = args.timestamp_event,
+                    .field = args.transfer_pending.?.id,
+                });
+                self.forest.grooves.account_events.indexes.expired_transfer_id.key_range_update(
+                    args.transfer_pending.?.id,
+                );
+
                 self.forest.grooves.account_events.indexes.expired_debit_account_id.put(&.{
                     .timestamp = args.timestamp_event,
                     .field = args.dr_account.id,
@@ -5257,10 +5309,6 @@ pub fn StateMachineType(comptime Storage: type) type {
                 self.forest.grooves.account_events.indexes.expired_credit_account_id.put(&.{
                     .timestamp = args.timestamp_event,
                     .field = args.cr_account.id,
-                });
-                self.forest.grooves.account_events.indexes.expired_transfer_id.put(&.{
-                    .timestamp = args.timestamp_event,
-                    .field = args.transfer_pending.?.id,
                 });
                 self.forest.grooves.account_events.indexes.expired_ledger.put(&.{
                     .timestamp = args.timestamp_event,
@@ -5513,6 +5561,10 @@ pub fn StateMachineType(comptime Storage: type) type {
             maybe(prefetch_lookup_accounts_limit > prefetch_create_accounts_limit);
             maybe(prefetch_lookup_transfers_limit > prefetch_create_transfers_limit);
 
+            const prefetch_query_two_phase_transfers_limit: u32 =
+                Operation.query_two_phase_transfers.result_max(options.batch_size_limit);
+            assert(prefetch_query_two_phase_transfers_limit > 0);
+
             const tree_values_count_limit = tree_values_count(options.batch_size_limit);
             return .{
                 .accounts = .{
@@ -5570,7 +5622,8 @@ pub fn StateMachineType(comptime Storage: type) type {
                     ),
                 },
                 .account_events = .{
-                    .prefetch_entries_for_read_max = 0,
+                    // We prefetch at most the number of results of query_two_phase_transfers.
+                    .prefetch_entries_for_read_max = prefetch_query_two_phase_transfers_limit,
                     // We don't need to update the history, it's append only.
                     .prefetch_entries_for_update_max = 0,
                     .cache_entries_max = 0,

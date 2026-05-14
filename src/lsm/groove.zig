@@ -273,12 +273,12 @@ pub fn GrooveType(
         }
     }
 
-    comptime var index_fields: []const std.builtin.Type.StructField = &.{};
-
-    // Generate LSM trees for the unique keys.
+    // Verify the unique keys.
     for (groove_options.unique_keys) |field_name| {
         comptime assert(!std.mem.eql(u8, field_name, "timestamp"));
-        if (!@hasField(Object, field_name)) {
+        if (!@hasField(Object, field_name) and
+            !@hasField(@TypeOf(groove_options.derived), field_name))
+        {
             @compileError("unique_keys: unrecognized field name " ++ field_name);
         }
 
@@ -298,49 +298,42 @@ pub fn GrooveType(
             optional = optional or std.mem.eql(u8, field_name, optional_field_name);
         }
         comptime maybe(optional);
-
-        const table_value_count_max = constants.lsm_compaction_ops *
-            @field(groove_options.batch_value_count_max, field_name);
-        const Field = @FieldType(Object, field_name);
-        const UniqueKeyTree = UniqueKeyTreeType(Storage, Field, table_value_count_max);
-        index_fields = index_fields ++ [_]std.builtin.Type.StructField{
-            .{
-                .name = field_name,
-                .type = UniqueKeyTree,
-                .default_value_ptr = null,
-                .is_comptime = false,
-                .alignment = @alignOf(UniqueKeyTree),
-            },
-        };
     }
+
+    comptime var index_fields: []const std.builtin.Type.StructField = &.{};
 
     // Generate index LSM trees from the struct fields.
     for (std.meta.fields(Object)) |field| {
         // See if we should ignore this field from the options.
         // By default, we ignore the "timestamp" and the unique keys.
         comptime var ignored = mem.eql(u8, field.name, "timestamp");
-        for (groove_options.unique_keys) |unique_key_name| {
-            ignored = ignored or std.mem.eql(u8, field.name, unique_key_name);
-        }
         for (groove_options.ignored) |ignored_field_name| {
             comptime assert(!std.mem.eql(u8, ignored_field_name, "timestamp"));
             ignored = ignored or std.mem.eql(u8, field.name, ignored_field_name);
         }
+        if (ignored) continue;
 
-        if (!ignored) {
-            const table_value_count_max = constants.lsm_compaction_ops *
-                @field(groove_options.batch_value_count_max, field.name);
-            const IndexTree = IndexTreeType(Storage, field.type, table_value_count_max);
-            index_fields = index_fields ++ [_]std.builtin.Type.StructField{
-                .{
-                    .name = field.name,
-                    .type = IndexTree,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(IndexTree),
-                },
-            };
+        comptime var unique_key: bool = false;
+        for (groove_options.unique_keys) |unique_key_name| {
+            unique_key = unique_key or std.mem.eql(u8, field.name, unique_key_name);
         }
+
+        const table_value_count_max = constants.lsm_compaction_ops *
+            @field(groove_options.batch_value_count_max, field.name);
+        const IndexTree = if (unique_key)
+            UniqueKeyTreeType(Storage, field.type, table_value_count_max)
+        else
+            IndexTreeType(Storage, field.type, table_value_count_max);
+
+        index_fields = index_fields ++ [_]std.builtin.Type.StructField{
+            .{
+                .name = field.name,
+                .type = IndexTree,
+                .default_value_ptr = null,
+                .is_comptime = false,
+                .alignment = @alignOf(IndexTree),
+            },
+        };
     }
 
     // Generate IndexTrees for fields derived from the Value in groove_options.
@@ -372,11 +365,18 @@ pub fn GrooveType(
             @compileError("expected derive fn to return optional tree index type");
         }
 
+        comptime var unique_key: bool = false;
+        for (groove_options.unique_keys) |unique_key_name| {
+            unique_key = unique_key or std.mem.eql(u8, field.name, unique_key_name);
+        }
+
         const DerivedType = derive_return_type.optional.child;
         const table_value_count_max = constants.lsm_compaction_ops *
             @field(groove_options.batch_value_count_max, field.name);
-        const IndexTree = IndexTreeType(Storage, DerivedType, table_value_count_max);
-
+        const IndexTree = if (unique_key)
+            UniqueKeyTreeType(Storage, DerivedType, table_value_count_max)
+        else
+            IndexTreeType(Storage, DerivedType, table_value_count_max);
         index_fields = index_fields ++ [_]std.builtin.Type.StructField{
             .{
                 .name = field.name,
@@ -587,7 +587,8 @@ pub fn GrooveType(
                 Tag,
                 struct {
                     fn Type(comptime variant: Tag) type {
-                        return @FieldType(Object, @tagName(variant));
+                        const IndexHelper = IndexHelperType(@tagName(variant));
+                        return IndexHelper.IndexPrefix;
                     }
                 }.Type,
             );
@@ -837,7 +838,11 @@ pub fn GrooveType(
                     assert(object.?.timestamp != 0);
                     switch (key) {
                         inline else => |value, field| {
-                            assert(@field(object.?, @tagName(field)) == value);
+                            const IndexHelper = IndexHelperType(@tagName(field));
+                            if (IndexHelper.index_from_object(object.?)) |index|
+                                assert(index == value)
+                            else
+                                assert(IndexHelper.is_derived);
                         },
                     }
 
@@ -948,16 +953,26 @@ pub fn GrooveType(
             if (timestamp_hint) |timestamp| {
                 assert(TimestampRange.valid(timestamp));
 
-                if (comptime !is_primary_key(.timestamp)) {
-                    // Lookup by the primary key skip the mutable
-                    // table by checking the object cache.
-                    // When searching by other unique keys, the mutable
-                    // table needs to be sorted and binary-searched.
-                    if (groove.sort_and_search_table_mutable(key, timestamp)) |primary_key| {
-                        groove.prefetch_keys.putAssumeCapacityNoClobber(key, .{
-                            .found = primary_key,
-                        });
-                        return;
+                if (!is_primary_key(std.meta.activeTag(key))) {
+                    if (comptime is_primary_key(.timestamp)) {
+                        if (groove.objects_cache.has(timestamp)) {
+                            assert(key != .timestamp);
+                            groove.prefetch_keys.putAssumeCapacityNoClobber(key, .{
+                                .found = timestamp,
+                            });
+                            return;
+                        }
+                    } else {
+                        // Lookup by the primary key skip the mutable
+                        // table by checking the object cache.
+                        // When searching by other unique keys, the mutable
+                        // table needs to be sorted and binary-searched.s
+                        if (groove.sort_and_search_table_mutable(key, timestamp)) |primary_key| {
+                            groove.prefetch_keys.putAssumeCapacityNoClobber(key, .{
+                                .found = primary_key,
+                            });
+                            return;
+                        }
                     }
                 }
 
@@ -1079,7 +1094,11 @@ pub fn GrooveType(
                     assert(object.timestamp == options.timestamp_hint);
                     switch (options.key) {
                         inline else => |value, field| {
-                            assert(@field(object, @tagName(field)) == value);
+                            const IndexHelper = IndexHelperType(@tagName(field));
+                            if (IndexHelper.index_from_object(object)) |index|
+                                assert(index == value)
+                            else
+                                assert(IndexHelper.is_derived);
                         },
                     }
                     groove.objects_cache.upsert(object);
@@ -1123,7 +1142,11 @@ pub fn GrooveType(
                 assert(object.timestamp == timestamp);
                 switch (key) {
                     inline else => |value, field| {
-                        assert(@field(object, @tagName(field)) == value);
+                        const IndexHelper = IndexHelperType(@tagName(field));
+                        if (IndexHelper.index_from_object(object)) |index|
+                            assert(index == value)
+                        else
+                            assert(IndexHelper.is_derived);
                     },
                 }
 
@@ -1257,7 +1280,11 @@ pub fn GrooveType(
                                 assert(object.?.timestamp != 0);
                                 switch (entry.key_ptr.*) {
                                     inline else => |value, field| {
-                                        assert(@field(object.?, @tagName(field)) == value);
+                                        const IndexHelper = IndexHelperType(@tagName(field));
+                                        if (IndexHelper.index_from_object(object.?)) |index|
+                                            assert(index == value)
+                                        else
+                                            assert(IndexHelper.is_derived);
                                     },
                                 }
                             },
@@ -1539,7 +1566,11 @@ pub fn GrooveType(
                     assert(!ObjectTreeHelper.tombstone(object));
                     switch (entry.key_ptr.*) {
                         inline else => |value, field| {
-                            assert(@field(object, @tagName(field)) == value);
+                            const IndexHelper = IndexHelperType(@tagName(field));
+                            if (IndexHelper.index_from_object(object)) |index|
+                                assert(index == value)
+                            else
+                                assert(IndexHelper.is_derived);
                         },
                     }
                     worker.context.groove.objects_cache.upsert(object);

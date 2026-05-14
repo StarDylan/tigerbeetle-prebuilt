@@ -244,10 +244,16 @@ pub const Parser = struct {
                                             "padding",
                                         )) {
                                             if (known_flag_field.type == bool) {
-                                                @field(validated_flags, known_flag_field.name) = true;
+                                                @field(
+                                                    validated_flags,
+                                                    known_flag_field.name,
+                                                ) = true;
                                             } else {
                                                 // TODO: handle enum inside flags.
-                                                @field(validated_flags, known_flag_field.name) = @enumFromInt(1);
+                                                @field(
+                                                    validated_flags,
+                                                    known_flag_field.name,
+                                                ) = @enumFromInt(1);
                                             }
                                         }
                                     }
