@@ -2,6 +2,15 @@ name: Build Rust client assets
 
 on:
   workflow_dispatch:
+    inputs:
+      tigerbeetle_release:
+        description: "TigerBeetle release, e.g. 0.17.4"
+        required: true
+        type: string
+      tigerbeetle_client_min:
+        description: "Minimum supported client release, e.g. 0.16.4"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -28,7 +37,10 @@ jobs:
         env:
           CI: "false"
         run: |
-          ./zig/zig build clients:rust -Drelease
+          ./zig/zig build clients:rust \
+            -Drelease \
+            -Dconfig-release="${{ inputs.tigerbeetle_release }}" \
+            -Dconfig-release-client-min="${{ inputs.tigerbeetle_client_min }}"
 
       - name: Verify generated assets
         shell: bash
@@ -52,6 +64,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No generated asset changes to commit."
           else
-            git commit -m "Add Rust client native assets"
+            git commit -m "Add Rust client native assets for TigerBeetle ${{ inputs.tigerbeetle_release }}"
             git push
           fi
